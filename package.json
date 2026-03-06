@@ -1,0 +1,16 @@
+{
+  "name": "react-web-deck-swiper",
+  "version": "1.0.0",
+  "description": "Tinder-like card swiper for React web apps. Web port of react-native-deck-swiper.",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "types": "src/index.ts",
+  "license": "ISC",
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.6",
+    "typescript": "^5.8.3"
+  }
+}
