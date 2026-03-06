@@ -19,7 +19,7 @@ import {
 } from "./spring";
 import type { OverlayLabels, SwiperProps, SwiperRef } from "./types";
 
-const SWIPE_MULTIPLY_FACTOR = 4;
+const SWIPE_MULTIPLY_FACTOR = 6;
 
 const LABEL_TYPES = {
   NONE: "none",
@@ -130,6 +130,7 @@ function SwiperInner<T>(
   const slideGestureRef = useRef(false);
   const mountedRef = useRef(true);
   const activeAnimationsRef = useRef<AnimationHandle[]>([]);
+  const stackAnimationsRef = useRef<AnimationHandle[]>([]);
 
   // Slot system refs
   const slotZIndexesRef = useRef<number[]>(
@@ -160,6 +161,9 @@ function SwiperInner<T>(
       (100 - stackScale * i) * 0.01,
     ),
   );
+
+  // Swipe fade-out opacity (1 = fully visible, 0 = faded out)
+  const swipeFadeOpacityRef = useRef(1);
 
   // Pointer tracking
   const pointerStartRef = useRef({ x: 0, y: 0 });
@@ -264,7 +268,7 @@ function SwiperInner<T>(
       }
 
       el.style.transform = `translate(${dx}px, ${dy}px) rotate(${rotation})`;
-      el.style.opacity = String(opacity * slotOpacitiesRef.current[topSlot]!);
+      el.style.opacity = String(opacity * slotOpacitiesRef.current[topSlot]! * swipeFadeOpacityRef.current);
     },
     [
       stackSize,
@@ -372,6 +376,13 @@ function SwiperInner<T>(
   const animateStack = useCallback(() => {
     if (swipedAllCardsRef.current || !showSecondCard) return;
 
+    // Cancel any previous stack animations to avoid conflicts
+    stackAnimationsRef.current.forEach((a) => a.cancel());
+    stackAnimationsRef.current = [];
+
+    // Capture top slot at call time so spring callbacks use the correct value
+    const topSlotAtStart = swipedCountRef.current % stackSize;
+
     for (let position = stackSize - 1; position > 0; position--) {
       const targetSeparation = stackSeparation * (position - 1);
       const targetScale = (100 - stackScale * (position - 1)) * 0.01;
@@ -389,12 +400,11 @@ function SwiperInner<T>(
           stackPositionsRef.current[positionIdx] = pos.x;
           stackScalesRef.current[positionIdx] = pos.y;
 
-          // Apply to all non-top slots at this position
-          const topSlot = swipedCountRef.current % stackSize;
+          // Apply to all non-top slots at this position (using captured topSlot)
           for (let slot = 0; slot < stackSize; slot++) {
-            if (slot === topSlot) continue;
+            if (slot === topSlotAtStart) continue;
             const slotPosition =
-              (slot - topSlot + stackSize) % stackSize;
+              (slot - topSlotAtStart + stackSize) % stackSize;
             if (slotPosition === positionIdx) {
               applyStackCardStyle(slot, positionIdx);
             }
@@ -402,6 +412,7 @@ function SwiperInner<T>(
         },
         () => {},
       );
+      stackAnimationsRef.current.push(anim);
       activeAnimationsRef.current.push(anim);
     }
   }, [
@@ -419,11 +430,16 @@ function SwiperInner<T>(
     (newCardIndex: number, allSwiped: boolean) => {
       if (!mountedRef.current) return;
 
+      // Cancel any in-flight stack animations before rebuilding
+      stackAnimationsRef.current.forEach((a) => a.cancel());
+      stackAnimationsRef.current = [];
+
       const currentSwipedCount = swipedCountRef.current;
       const swipedSlot = currentSwipedCount % stackSize;
 
-      // Reset pan position for top card DOM
+      // Reset pan position and fade opacity for top card DOM
       panRef.current = { x: 0, y: 0 };
+      swipeFadeOpacityRef.current = 1;
 
       // Update the cached content for the slot going to bottom
       const bottomCardIndex = newCardIndex + stackSize - 1;
@@ -556,6 +572,31 @@ function SwiperInner<T>(
       panResponderLockedRef.current = true;
       animateStack();
 
+      // Reset fade opacity for this swipe
+      swipeFadeOpacityRef.current = 1;
+
+      // Start a delayed fade-out: begins at 20% of duration, ends at 100%
+      const fadeDelay = swipeAnimationDuration * 0.2;
+      const fadeDuration = swipeAnimationDuration * 0.8;
+      const fadeTimeout = setTimeout(() => {
+        const fadeAnim = animateTimingValue(
+          1,
+          0,
+          fadeDuration,
+          (val) => {
+            swipeFadeOpacityRef.current = val;
+            // Apply immediately to top card DOM
+            const topSlot = swipedCountRef.current % stackSize;
+            const el = slotRefs.current[topSlot];
+            if (el) {
+              el.style.opacity = String(val);
+            }
+          },
+          () => {},
+        );
+        activeAnimationsRef.current.push(fadeAnim);
+      }, fadeDelay);
+
       const anim = animateTiming(
         { x: panRef.current.x, y: panRef.current.y },
         { x: dx * SWIPE_MULTIPLY_FACTOR, y: dy * SWIPE_MULTIPLY_FACTOR },
@@ -566,6 +607,7 @@ function SwiperInner<T>(
         },
         () => {
           // Animation completed - card is off-screen
+          clearTimeout(fadeTimeout);
           const currentSwipedCount = swipedCountRef.current;
           const swipedSlot = currentSwipedCount % stackSize;
           const newTopSlot = (currentSwipedCount + 1) % stackSize;
