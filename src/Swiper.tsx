@@ -101,6 +101,7 @@ function SwiperInner<T>(
     overlayLabels,
     overlayLabelStyle,
     overlayLabelWrapperStyle,
+    overflowClipMargin,
     pointerEvents = "auto",
     goBackToPreviousCardOnSwipeLeft = false,
     goBackToPreviousCardOnSwipeRight = false,
@@ -1009,7 +1010,7 @@ function SwiperInner<T>(
     return renderedCards;
   };
 
-  return (
+  const container = (
     <div
       ref={containerRef}
       onPointerDown={handlePointerDown}
@@ -1032,6 +1033,29 @@ function SwiperInner<T>(
       {renderStack()}
     </div>
   );
+
+  // When overflowClipMargin is set, wrap in a container that prevents card
+  // swipes from causing page scrollbars. Negative margins expand the clip
+  // boundary, positive padding keeps content positioned correctly,
+  // overflow:hidden clips cards at the expanded boundary, and contain:paint
+  // prevents the expanded box from affecting page scroll dimensions.
+  // Works in all modern browsers (no overflow-clip-margin needed).
+  if (overflowClipMargin != null) {
+    return (
+      <div
+        style={{
+          margin: `calc(-1 * ${overflowClipMargin})`,
+          padding: overflowClipMargin,
+          overflow: "hidden",
+          contain: "paint",
+        }}
+      >
+        {container}
+      </div>
+    );
+  }
+
+  return container;
 }
 
 // Wrapper to support generics with forwardRef

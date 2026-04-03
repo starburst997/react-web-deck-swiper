@@ -102,6 +102,12 @@ export interface SwiperProps<T> {
   children?: ReactNode;
   childrenOnTop?: boolean;
 
+  // Overflow clipping — when set, wraps the swiper in a clipping container that
+  // prevents card swipes from causing page scrollbars. The value specifies how
+  // far the clip boundary extends beyond the swiper container on all sides.
+  // Example: "100vw" lets cards animate across the full viewport.
+  overflowClipMargin?: string;
+
   // Pointer events
   pointerEvents?: "auto" | "none";
 }
