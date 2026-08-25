@@ -579,16 +579,22 @@ function SwiperInner<T>(
       // Start a delayed fade-out: begins at 20% of duration, ends at 100%
       const fadeDelay = swipeAnimationDuration * 0.2;
       const fadeDuration = swipeAnimationDuration * 0.8;
+      let fadeAnim: AnimationHandle | null = null;
       const fadeTimeout = setTimeout(() => {
-        const fadeAnim = animateTimingValue(
+        // Capture the swiped slot ONCE. Reading it per-frame inside the
+        // callback let straggler frames (rAF jitter, throttled mobile frames)
+        // land AFTER setCardIndex incremented swipedCount — zeroing the
+        // opacity of the freshly PROMOTED top card instead, which left an
+        // invisible-but-interactive top card over the stack.
+        const topSlot = swipedCountRef.current % stackSize;
+        const el = slotRefs.current[topSlot];
+        fadeAnim = animateTimingValue(
           1,
           0,
           fadeDuration,
           (val) => {
             swipeFadeOpacityRef.current = val;
             // Apply immediately to top card DOM
-            const topSlot = swipedCountRef.current % stackSize;
-            const el = slotRefs.current[topSlot];
             if (el) {
               el.style.opacity = String(val);
             }
@@ -607,8 +613,11 @@ function SwiperInner<T>(
           applyTopCardStyle(pos.x, pos.y);
         },
         () => {
-          // Animation completed - card is off-screen
+          // Animation completed - card is off-screen. Stop the fade-out too:
+          // its slot is about to be recycled (and fade back IN), so any
+          // remaining fade-out frames would fight the recycle fade.
           clearTimeout(fadeTimeout);
+          fadeAnim?.cancel();
           const currentSwipedCount = swipedCountRef.current;
           const swipedSlot = currentSwipedCount % stackSize;
           const newTopSlot = (currentSwipedCount + 1) % stackSize;
@@ -662,16 +671,24 @@ function SwiperInner<T>(
   useImperativeHandle(
     ref,
     () => ({
+      // The imperative swipes honor the same in-flight lock as gestures:
+      // firing a second swipe mid-animation (e.g. holding a keyboard arrow)
+      // runs two completions against one swipedCount and corrupts the slots'
+      // z-index/opacity bookkeeping.
       swipeLeft: (mustDecrement = false) => {
+        if (panResponderLockedRef.current || swipedAllCardsRef.current) return;
         swipeCard(onSwipedLeft, -horizontalThreshold, 0, mustDecrement);
       },
       swipeRight: (mustDecrement = false) => {
+        if (panResponderLockedRef.current || swipedAllCardsRef.current) return;
         swipeCard(onSwipedRight, horizontalThreshold, 0, mustDecrement);
       },
       swipeTop: (mustDecrement = false) => {
+        if (panResponderLockedRef.current || swipedAllCardsRef.current) return;
         swipeCard(onSwipedTop, 0, -verticalThreshold, mustDecrement);
       },
       swipeBottom: (mustDecrement = false) => {
+        if (panResponderLockedRef.current || swipedAllCardsRef.current) return;
         swipeCard(onSwipedBottom, 0, verticalThreshold, mustDecrement);
       },
       jumpToCardIndex: (newIndex: number) => {
